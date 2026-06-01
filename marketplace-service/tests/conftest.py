@@ -1,3 +1,5 @@
+import uuid
+
 import pytest
 import pytest_asyncio
 from httpx import AsyncClient, ASGITransport
@@ -5,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.main import app
 from app.database import Base, get_db
+from app.utils.deps import get_current_user
 
 TEST_DATABASE_URL = "postgresql+asyncpg://marketplace_user:marketplace_password@localhost:5432/marketplace_test_db"
 
@@ -41,4 +44,31 @@ async def client(db_session: AsyncSession):
     app.dependency_overrides[get_db] = override_get_db
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def make_user():
+    def _make(email_prefix="user"):
+        return {"id": str(uuid.uuid4()), "email": f"{email_prefix}@test.com", "username": email_prefix}
+    return _make
+
+
+@pytest_asyncio.fixture
+async def authed_client(db_session: AsyncSession, make_user):
+    user = make_user("seller")
+
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_current_user():
+        return user
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.dependency_overrides[get_current_user] = override_get_current_user
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        ac.state = type("State", (), {"user": user})()
+        yield ac
+
     app.dependency_overrides.clear()
