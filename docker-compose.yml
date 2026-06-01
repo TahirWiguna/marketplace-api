@@ -1,0 +1,74 @@
+version: "3.9"
+
+services:
+  auth-db:
+    image: postgres:15-alpine
+    container_name: auth-db
+    environment:
+      POSTGRES_USER: ${AUTH_DB_USER:-auth_user}
+      POSTGRES_PASSWORD: ${AUTH_DB_PASSWORD:-auth_password}
+      POSTGRES_DB: ${AUTH_DB_NAME:-auth_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - auth_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AUTH_DB_USER:-auth_user} -d ${AUTH_DB_NAME:-auth_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  marketplace-db:
+    image: postgres:15-alpine
+    container_name: marketplace-db
+    environment:
+      POSTGRES_USER: ${MARKETPLACE_DB_USER:-marketplace_user}
+      POSTGRES_PASSWORD: ${MARKETPLACE_DB_PASSWORD:-marketplace_password}
+      POSTGRES_DB: ${MARKETPLACE_DB_NAME:-marketplace_db}
+    ports:
+      - "5433:5432"
+    volumes:
+      - marketplace_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MARKETPLACE_DB_USER:-marketplace_user} -d ${MARKETPLACE_DB_NAME:-marketplace_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  auth-service:
+    build:
+      context: ./auth-service
+      dockerfile: Dockerfile
+    container_name: auth-service
+    ports:
+      - "8001:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${AUTH_DB_USER:-auth_user}:${AUTH_DB_PASSWORD:-auth_password}@auth-db:5432/${AUTH_DB_NAME:-auth_db}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-changeme-in-production}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+    depends_on:
+      auth-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  marketplace-service:
+    build:
+      context: ./marketplace-service
+      dockerfile: Dockerfile
+    container_name: marketplace-service
+    ports:
+      - "8002:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${MARKETPLACE_DB_USER:-marketplace_user}:${MARKETPLACE_DB_PASSWORD:-marketplace_password}@marketplace-db:5432/${MARKETPLACE_DB_NAME:-marketplace_db}
+      AUTH_SERVICE_URL: ${AUTH_SERVICE_URL:-http://auth-service:8000}
+    depends_on:
+      marketplace-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  auth_db_data:
+  marketplace_db_data:
