@@ -59,7 +59,11 @@ async def test_create_refresh_token(db_session: AsyncSession):
     assert token.token_hash == "abc123hash"
     assert token.revoked is False
     assert token.created_at is not None
-    assert token.expires_at > datetime.now(timezone.utc)
+    # SQLite returns naive datetimes; compare accordingly
+    expires = token.expires_at
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    assert expires > datetime.now(timezone.utc)
 
     # Verify it's queryable
     result = await db_session.execute(
