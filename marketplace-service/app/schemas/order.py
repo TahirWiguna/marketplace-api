@@ -1,6 +1,6 @@
 from decimal import Decimal
 from datetime import datetime
-from typing import Annotated, Optional
+from typing import Annotated, List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,3 +30,10 @@ class OrderResponse(BaseModel):
     status: str
     created_at: datetime
     product: Optional[ProductSummary] = None
+
+
+class OrderList(BaseModel):
+    items: List[OrderResponse]
+    total: int
+    page: int
+    per_page: int

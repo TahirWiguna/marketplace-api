@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.order import Order
 from app.models.product import Product
-from app.schemas.order import OrderCreate, OrderResponse, ProductSummary
+from app.schemas.order import OrderCreate, OrderList, OrderResponse, ProductSummary
 from app.utils.deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
@@ -45,10 +45,19 @@ async def create_order(
     db.add(order)
     await db.flush()
     await db.refresh(order)
-    return order
+    return OrderResponse(
+        id=order.id,
+        buyer_id=order.buyer_id,
+        product_id=order.product_id,
+        quantity=order.quantity,
+        total_price=order.total_price,
+        status=order.status,
+        created_at=order.created_at,
+        product=ProductSummary.model_validate(product),
+    )
 
 
-@router.get("/", response_model=dict)
+@router.get("/", response_model=OrderList)
 async def list_my_orders(
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=100),
@@ -99,13 +108,28 @@ async def get_order(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    result = await db.execute(select(Order).where(Order.id == order_id))
-    order = result.scalar_one_or_none()
+    result = await db.execute(
+        select(Order, Product)
+        .join(Product, Order.product_id == Product.id)
+        .where(Order.id == order_id)
+    )
+    row = result.one_or_none()
 
-    if not order:
+    if not row:
         raise HTTPException(status_code=404, detail="Order not found")
+
+    order, product = row
 
     if str(order.buyer_id) != current_user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized to view this order")
 
-    return order
+    return OrderResponse(
+        id=order.id,
+        buyer_id=order.buyer_id,
+        product_id=order.product_id,
+        quantity=order.quantity,
+        total_price=order.total_price,
+        status=order.status,
+        created_at=order.created_at,
+        product=ProductSummary.model_validate(product),
+    )
