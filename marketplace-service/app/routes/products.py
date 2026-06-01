@@ -35,7 +35,7 @@ async def create_product(
 @router.get("/", response_model=ProductList)
 async def list_products(
     page: int = Query(1, ge=1),
-    per_page: int = Query(10, ge=1, le=100),
+    per_page: int = Query(20, ge=1, le=100),
     search: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):

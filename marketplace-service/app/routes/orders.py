@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.order import Order
 from app.models.product import Product
-from app.schemas.order import OrderCreate, OrderResponse
+from app.schemas.order import OrderCreate, OrderResponse, ProductSummary
 from app.utils.deps import get_current_user
 
 router = APIRouter(prefix="/api/v1/orders", tags=["orders"])
@@ -21,7 +21,9 @@ async def create_order(
     current_user: dict = Depends(get_current_user),
 ):
     result = await db.execute(
-        select(Product).where(Product.id == data.product_id, Product.is_active == True)  # noqa: E712
+        select(Product)
+        .where(Product.id == data.product_id, Product.is_active == True)  # noqa: E712
+        .with_for_update()
     )
     product = result.scalar_one_or_none()
 
@@ -61,15 +63,30 @@ async def list_my_orders(
     total = total_result.scalar()
 
     result = await db.execute(
-        select(Order)
+        select(Order, Product)
+        .join(Product, Order.product_id == Product.id)
         .where(Order.buyer_id == buyer_id)
         .offset((page - 1) * per_page)
         .limit(per_page)
     )
-    orders = result.scalars().all()
+    rows = result.all()
+
+    items = [
+        OrderResponse(
+            id=order.id,
+            buyer_id=order.buyer_id,
+            product_id=order.product_id,
+            quantity=order.quantity,
+            total_price=order.total_price,
+            status=order.status,
+            created_at=order.created_at,
+            product=ProductSummary.model_validate(product),
+        )
+        for order, product in rows
+    ]
 
     return {
-        "items": [OrderResponse.model_validate(o) for o in orders],
+        "items": items,
         "total": total,
         "page": page,
         "per_page": per_page,

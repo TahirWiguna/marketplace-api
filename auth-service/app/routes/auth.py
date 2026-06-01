@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -41,7 +42,11 @@ async def register(body: UserCreate, db: AsyncSession = Depends(get_db)):
         updated_at=datetime.now(timezone.utc),
     )
     db.add(user)
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")
     await db.refresh(user)
     return user
 
@@ -85,13 +90,29 @@ async def refresh(body: RefreshRequest, db: AsyncSession = Depends(get_db)):
     if stored is None or stored.revoked:
         raise invalid_exc
 
+    # SQLite may return naive datetimes; treat them as UTC
+    expires_at = stored.expires_at
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        raise invalid_exc
+
     user_result = await db.execute(select(User).where(User.id == stored.user_id))
     user = user_result.scalar_one_or_none()
     if user is None:
         raise invalid_exc
 
+    # Revoke old token and issue a new one
+    stored.revoked = True
+    new_refresh_token = create_refresh_token(user.id)
+    db.add(RefreshToken(
+        user_id=user.id,
+        token_hash=_hash_token(new_refresh_token),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
+    ))
+
     access_token = create_access_token(user.id, user.email)
-    return TokenResponse(access_token=access_token, refresh_token=body.refresh_token)
+    return TokenResponse(access_token=access_token, refresh_token=new_refresh_token)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)

@@ -3,6 +3,25 @@ from httpx import AsyncClient
 
 
 @pytest.mark.asyncio
+async def test_register_success(client: AsyncClient):
+    resp = await client.post("/api/v1/auth/register", json={"email": "newuser@example.com", "password": "password123"})
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["email"] == "newuser@example.com"
+    assert "id" in data
+    assert "password" not in data
+    assert "password_hash" not in data
+
+
+@pytest.mark.asyncio
+async def test_register_duplicate_email(client: AsyncClient):
+    payload = {"email": "duplicate@example.com", "password": "password123"}
+    await client.post("/api/v1/auth/register", json=payload)
+    resp = await client.post("/api/v1/auth/register", json=payload)
+    assert resp.status_code == 409
+
+
+@pytest.mark.asyncio
 async def test_login_success(client: AsyncClient):
     await client.post("/api/v1/auth/register", json={"email": "login@example.com", "password": "password123"})
 
@@ -32,7 +51,12 @@ async def test_token_refresh(client: AsyncClient):
     assert resp.status_code == 200
     data = resp.json()
     assert "access_token" in data
-    assert data["refresh_token"] == refresh_token
+    # Rotation: new refresh token must differ from old one
+    assert data["refresh_token"] != refresh_token
+
+    # Old refresh token must be invalidated
+    reuse_resp = await client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert reuse_resp.status_code == 401
 
 
 @pytest.mark.asyncio

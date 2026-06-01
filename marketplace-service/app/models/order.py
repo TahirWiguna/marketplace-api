@@ -1,8 +1,9 @@
 import enum
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, Numeric, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,10 +27,10 @@ class Order(Base):
         UUID(as_uuid=True), ForeignKey("products.id")
     )
     quantity: Mapped[int] = mapped_column(Integer)
-    total_price: Mapped[float] = mapped_column(Numeric(10, 2))
+    total_price: Mapped[Decimal] = mapped_column(Numeric(10, 2))
     status: Mapped[OrderStatus] = mapped_column(
         Enum(OrderStatus, name="orderstatus"), default=OrderStatus.pending
     )
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow
+        DateTime(timezone=True), server_default=func.now()
     )
